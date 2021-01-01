@@ -5,9 +5,6 @@ from datetime import datetime
 from collections import Counter
 import math
 
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
@@ -16,9 +13,8 @@ from objects import assetfuncs as af
 import imp
 imp.reload(af)
 
-
 # DECLARATIONS
-##SHEETS
+##EXCEL
 PORTFOLIO_FILE = pd.ExcelFile('portfolio.xlsx')
 PORTFOLIO = pd.read_excel(PORTFOLIO_FILE, sheet_name = 'portfolio', header = 0, index_col = 0)
 PORTFOLIO_HIST = pd.read_excel(PORTFOLIO_FILE, sheet_name = 'summary', header = 0, index_col = 0)
@@ -31,17 +27,20 @@ CASH_ON_HAND = PORTFOLIO.loc['CASH'].value
 EMAIL_ADDRESS = os.environ.get('AL_EMAIL')
 EMAIL_PASSWORD = os.environ.get('AL_PASS')
 
-
 # FUNCTIONS
 def initialize_asset(ticker, stocks_df):
     asset = af.Asset(ticker)
     asset.update_values(stocks_df)
+    print(f"INITIALIZED: {ticker}")
+
     return asset
 
 def check_indicators(asset, indicators):
-    # Returns final 'buy' or 'sell' command from indicators
-    # Update dict to include any new indicators (SMA, MACD, BB, etc.)
-    # Format: 'indicator': [check_ind()]
+    '''
+    Returns final 'buy' or 'sell' command from indicators
+    Update dict to include any new indicators (SMA, MACD, BB, etc.)
+    Format: 'indicator': [check_ind()]
+    '''
     indicator_dict = {'rsi': check_rsi(asset.rsi)} 
     
     indicator_orders = {}
@@ -80,7 +79,7 @@ def check_tradable(asset, buy_sell, num_shares, stocks_df, portfolio_df):
 
     return tradable
 
-def execute_trade(asset, buy_sell, num_shares, stocks_df, portfolio_df, trades_df):
+def execute_trade(date, asset, buy_sell, num_shares, stocks_df, portfolio_df, trades_df):
     # @ asset-level
     asset.buy_sell(buy_sell, num_shares) 
     # @ portfolio-level
@@ -109,9 +108,17 @@ def todays_trades(trades_df):
     trades_executed = trades_df.loc[trades_df.date.str[0:10] == day]
     return trades_executed
 
+##ASSET SETUP
+def update_port_ticker_values(df, ticker, asset):
+    df.loc[ticker, 'price'] = asset.price
+    df.loc[ticker, 'pct_change'] = asset.trend
+    df.loc[ticker, 'rsi'] = asset.rsi
+
+    return df
+
 ##EXCEL
-def update_workbook(watchlist, stocks_df, portfolio_df, trades_df, portfolio_hist):
-    writer = pd.ExcelWriter('portfolio.xlsx')
+def update_workbook(file_name, watchlist, stocks_df, portfolio_df, trades_df, portfolio_hist):
+    writer = pd.ExcelWriter(file_name)
     dfs = [watchlist, stocks_df, portfolio_df, trades_df, portfolio_hist]
     sheet_names = ['watchlist', 'stocks','portfolio', 'trades', 'summary']
 
@@ -157,8 +164,6 @@ def send_email(trades_df, stocks_df, portfolio_df):
     </body></html>
     """
 
-    # text = text.format(table=df)
-    # html = html.format(table=df)
     message = MIMEMultipart(
         "alternative", None, [MIMEText(text), MIMEText(html,'html')])
 
